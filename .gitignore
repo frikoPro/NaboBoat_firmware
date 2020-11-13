@@ -1,0 +1,23 @@
+# Object files
+*.o
+/.vscode
+
+#creditentials
+Creditentials.h
+
+# Libraries
+*.lib
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug folder
+Debug/*
