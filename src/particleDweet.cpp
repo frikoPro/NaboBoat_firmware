@@ -3,35 +3,44 @@
 /******************************************************/
 
 #include "Particle.h"
-#line 1 "c:/Users/fredr/Desktop/naboBoat/src/particleDweet.ino"
+#line 1 "c:/Users/fredr/Desktop/NaboBoat_firmware/src/particleDweet.ino"
 #include "SIM7600.h"
 
 // int sendAndReadResponse(String command);
 
 void setup();
 void loop();
-#line 5 "c:/Users/fredr/Desktop/naboBoat/src/particleDweet.ino"
+#line 5 "c:/Users/fredr/Desktop/NaboBoat_firmware/src/particleDweet.ino"
 SIM7600 *sim = SIM7600::getInstance();
 
 int counter = 0;
 int updateDweet = false;
 
 int particlePubData(String command);
+int initSim(String command);
 
 void setup()
 {
   pinMode(D7, OUTPUT);
   Particle.function("pubData", particlePubData);
+  Particle.function("initSim", initSim);
 
   Serial.begin(115200);
-
-  sim->initSim();
+  Serial1.begin(115200);
 }
 
 int particlePubData(String command)
 {
   Vector<String> cords = sim->getCords();
-  sim->postDweet("asdfsd", "asdfgsegw");
+  if (cords.isEmpty())
+    return -1;
+  sim->postDweet(cords.first(), cords.last());
+  return 1;
+}
+
+int initSim(String command)
+{
+  sim->initSim();
   return 1;
 }
 

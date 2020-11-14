@@ -13,6 +13,7 @@ public:
     Vector<String> getCords();
 
     void postDweet(String latitude, String longitude);
+    void readDweet();
 
 private:
     static SIM7600 *instance;

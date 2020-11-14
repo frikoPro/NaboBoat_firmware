@@ -8,22 +8,39 @@ int counter = 0;
 int updateDweet = false;
 
 int particlePubData(String command);
+int initSim(String command);
+int readDweet(String command);
 
 void setup()
 {
   pinMode(D7, OUTPUT);
   Particle.function("pubData", particlePubData);
+  Particle.function("initSim", initSim);
+  Particle.function("readDweet", readDweet);
 
   Serial.begin(115200);
-
-  sim->initSim();
+  Serial1.begin(19200);
 }
 
 int particlePubData(String command)
 {
   Vector<String> cords = sim->getCords();
-  sim->postDweet("asdfsd", "asdfgsegw");
+  if (cords.isEmpty())
+    return -1;
+  sim->postDweet(cords.first(), cords.last());
   return 1;
+}
+
+int initSim(String command)
+{
+  sim->initSim();
+  return 1;
+}
+
+int readDweet(String command)
+{
+  sim->readDweet();
+  Serial.println("\n\tFinish");
 }
 
 void loop()

@@ -97,7 +97,7 @@ bool SIM7600::sendAndReadResponse(String command)
 
 void SIM7600::initSim()
 {
-    Serial1.begin(115200);
+    sendAndReadResponse("AT+IPR=19200");
     sendAndReadResponse("AT");
     sendAndReadResponse("AT+CPIN=" + pinCode);
     sendAndReadResponse("AT+CFUN=1");
@@ -154,8 +154,6 @@ void SIM7600::checkInput()
     }
     if (Serial1.available() > 0)
     {
-        Serial.print(":");
-        delay(10);
         while (Serial1.available())
         {
             char ch = Serial1.read();
@@ -184,10 +182,23 @@ Vector<String> SIM7600::getCords()
         char ch = Serial1.read();
         if (ch)
         {
-            if (count > 24 && count < 36)
-                latitude += ch;
-            if (count >= 39 && count < 51)
-                longitude += ch;
+            if (ch != '.')
+            {
+                if (count > 24 && count < 36)
+                {
+                    if (ch == ',' && count == 25)
+                        return cords;
+                    latitude += ch;
+                    if (count == 26)
+                        latitude += '.';
+                }
+                if (count >= 39 && count < 51)
+                {
+                    longitude += ch;
+                    if (count == 41)
+                        longitude += '.';
+                }
+            }
         }
 
         count++;
@@ -206,19 +217,30 @@ Vector<String> SIM7600::getCords()
 
 void SIM7600::postDweet(String latitude, String longitude)
 {
+
+    String getRequest = "GET http://www.dweet.io/dweet/for/" + System.deviceID() + "?latitude=" + latitude + "&longitude=" + longitude + " HTTP/1.1\n";
+    Serial.println(getRequest);
     sendAndReadResponse("AT+CHTTPACT=\"dweet.io\",80");
-    delay(20);
-    Serial1.print("GET http://dweet.io/dweet/for/");
-    Serial1.print(deviceId);
-    Serial1.print("?latitude=");
-    Serial1.print(latitude);
-    Serial1.print("&longitude=");
-    Serial1.print(longitude);
-    Serial1.println(" HTTP/1.1\n");
+    delay(200);
+    Serial1.println(getRequest);
     Serial1.println("Host: dweet.io\n");
     Serial1.println("User-Agent: mozilly\n");
     Serial1.println("Content-Length: 0\n");
     Serial1.print(char(26));
     delay(20);
     Serial1.print(char(26));
+}
+
+void SIM7600::readDweet()
+{
+    String request = "GET /get/latest/dweet/for/2a003b000a47373336323230 HTTP/1.1\r\nHost: www.dweet.io\r\n\r\n";
+    sendAndReadResponse("AT+CHTTPSSTART");
+    sendAndReadResponse("AT+CHTTPSOPSE=\"dweet.io\", 80, 1");
+    sendAndReadResponse("AT+CHTTPSSEND=" + String(request.length()));
+    sendAndReadResponse(request);
+    delay(1000);
+    sendAndReadResponse("AT+CHTTPSRECV=4000");
+    checkInput();
+    sendAndReadResponse("AT+CHTTPSCLOSE");
+    sendAndReadResponse("CHTTPSSTOP");
 }

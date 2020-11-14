@@ -1,6 +1,7 @@
 # Object files
 *.o
 /.vscode
+/target
 
 #creditentials
 Creditentials.h
