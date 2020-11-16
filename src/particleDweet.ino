@@ -19,6 +19,8 @@ void setup()
   Particle.function("readDweet", readDweet);
 
   Serial.begin(115200);
+  Serial1.begin(115200);
+  sim->sendAndReadResponse("AT+IPR=19200");
   Serial1.begin(19200);
 }
 

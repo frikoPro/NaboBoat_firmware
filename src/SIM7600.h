@@ -9,6 +9,7 @@ public:
     void initSim();
     void publishData(String data, String path);
     void checkInput();
+    bool checkResponse(String command, String reply);
 
     Vector<String> getCords();
 

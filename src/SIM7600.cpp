@@ -95,9 +95,54 @@ bool SIM7600::sendAndReadResponse(String command)
     return errorReponse;
 }
 
+bool SIM7600::checkResponse(String command, String reply)
+{
+    Serial.print("sending: ");
+    Serial.println(command);
+    Serial1.print("command");
+    int timeOnSend = millis();
+    int timePastSend = 0;
+    String responseCheck = "";
+    int count = 0;
+
+    while (!responseCheck.compareTo(reply) || timeOnSend < 2000)
+    {
+        timePastSend = millis() - timeOnSend;
+        if (Serial1.available())
+        {
+            char ch = Serial1.read();
+            if (ch)
+            {
+                Serial.print(ch);
+                if (ch == reply.charAt(count))
+                    responseCheck += ch;
+                else
+                {
+                    responseCheck = "";
+                    count = 0;
+                }
+            }
+        }
+        count++;
+        while (Serial1.available() > 0)
+        {
+            char ch = Serial1.read();
+            if (ch)
+            {
+                Serial.print(ch);
+            }
+        }
+    }
+
+    if (responseCheck.compareTo(reply))
+        return true;
+
+    return false;
+}
+
 void SIM7600::initSim()
 {
-    sendAndReadResponse("AT+IPR=19200");
+
     sendAndReadResponse("AT");
     sendAndReadResponse("AT+CPIN=" + pinCode);
     sendAndReadResponse("AT+CFUN=1");
@@ -237,8 +282,7 @@ void SIM7600::readDweet()
     sendAndReadResponse("AT+CHTTPSSTART");
     sendAndReadResponse("AT+CHTTPSOPSE=\"dweet.io\", 80, 1");
     sendAndReadResponse("AT+CHTTPSSEND=" + String(request.length()));
-    sendAndReadResponse(request);
-    delay(1000);
+    checkResponse(request, "+CHTTPS:RECV EVENT");
     sendAndReadResponse("AT+CHTTPSRECV=4000");
     checkInput();
     sendAndReadResponse("AT+CHTTPSCLOSE");
