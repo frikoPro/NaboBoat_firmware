@@ -18,10 +18,8 @@ void setup()
   Particle.function("initSim", initSim);
   Particle.function("readDweet", readDweet);
 
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial1.begin(115200);
-  sim->sendAndReadResponse("AT+IPR=19200");
-  Serial1.begin(19200);
 }
 
 int particlePubData(String command)
@@ -42,7 +40,7 @@ int initSim(String command)
 int readDweet(String command)
 {
   sim->readDweet();
-  Serial.println("\n\tFinish");
+  return 1;
 }
 
 void loop()

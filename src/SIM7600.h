@@ -1,4 +1,5 @@
 #include "Particle.h"
+#include <ArduinoJson.h>
 
 class SIM7600
 {
@@ -9,7 +10,7 @@ public:
     void initSim();
     void publishData(String data, String path);
     void checkInput();
-    bool checkResponse(String command, String reply);
+    void readJson();
 
     Vector<String> getCords();
 

@@ -95,49 +95,61 @@ bool SIM7600::sendAndReadResponse(String command)
     return errorReponse;
 }
 
-bool SIM7600::checkResponse(String command, String reply)
+void SIM7600::readJson()
 {
-    Serial.print("sending: ");
-    Serial.println(command);
-    Serial1.print("command");
     int timeOnSend = millis();
     int timePastSend = 0;
-    String responseCheck = "";
     int count = 0;
+    String jsonString = "";
+    StaticJsonDocument<300> doc;
 
-    while (!responseCheck.compareTo(reply) || timeOnSend < 2000)
+    while (timePastSend < 10000)
     {
         timePastSend = millis() - timeOnSend;
-        if (Serial1.available())
+        if (Serial1.available() > 0)
         {
             char ch = Serial1.read();
             if (ch)
             {
-                Serial.print(ch);
-                if (ch == reply.charAt(count))
-                    responseCheck += ch;
-                else
+                if (ch == '{')
                 {
-                    responseCheck = "";
-                    count = 0;
+                    jsonString += ch;
+                    count++;
                 }
-            }
-        }
-        count++;
-        while (Serial1.available() > 0)
-        {
-            char ch = Serial1.read();
-            if (ch)
-            {
-                Serial.print(ch);
+                else if (ch == '}')
+                {
+                    jsonString += ch;
+                    count--;
+                    if (count == 0)
+                    {
+                        break;
+                    }
+                }
+                else if (count > 0)
+                {
+                    jsonString += ch;
+                }
             }
         }
     }
 
-    if (responseCheck.compareTo(reply))
-        return true;
+    char json[jsonString.length()];
 
-    return false;
+    sprintf(json, jsonString);
+
+    DeserializationError error = deserializeJson(doc, json);
+
+    if (error)
+    {
+        Serial.print(F("deserializeJson() failed: "));
+        return false;
+    }
+
+    int temp = doc["with"][0]["content"]["temp"];
+    Serial.print("temp: ");
+    Serial.println(temp);
+
+    return true;
 }
 
 void SIM7600::initSim()
@@ -148,8 +160,8 @@ void SIM7600::initSim()
     sendAndReadResponse("AT+CFUN=1");
     sendAndReadResponse("AT+CGACT=1,1");
     sendAndReadResponse("AT+CGDCONT=1,\"IP\",\"telenor.smart\"");
-    sendAndReadResponse("AT+CGSOCKCONT=1,\"IP\",\"telenor.smart\"");
-    sendAndReadResponse("AT+CSOCKSETPN=1");
+    // sendAndReadResponse("AT+CGSOCKCONT=1,\"IP\",\"telenor.smart\"");
+    // sendAndReadResponse("AT+CSOCKSETPN=1");
     sendAndReadResponse("AT+CGPS=1");
     sendAndReadResponse("AT+CGREG?");
     sendAndReadResponse("AT+NETOPEN");
@@ -278,13 +290,12 @@ void SIM7600::postDweet(String latitude, String longitude)
 
 void SIM7600::readDweet()
 {
-    String request = "GET /get/latest/dweet/for/2a003b000a47373336323230 HTTP/1.1\r\nHost: www.dweet.io\r\n\r\n";
-    sendAndReadResponse("AT+CHTTPSSTART");
-    sendAndReadResponse("AT+CHTTPSOPSE=\"dweet.io\", 80, 1");
-    sendAndReadResponse("AT+CHTTPSSEND=" + String(request.length()));
-    checkResponse(request, "+CHTTPS:RECV EVENT");
-    sendAndReadResponse("AT+CHTTPSRECV=4000");
-    checkInput();
-    sendAndReadResponse("AT+CHTTPSCLOSE");
-    sendAndReadResponse("CHTTPSSTOP");
+    // String request = "GET /get/latest/dweet/for/2a003b000a47373336323230 HTTP/1.1\r\nHost: www.dweet.io\r\n\r\n";
+    sendAndReadResponse("AT+HTTPINIT");
+    sendAndReadResponse("AT+HTTPPARA=\"URL\", \"http://dweet.io/get/latest/dweet/for/2a003b000a47373336323230\"");
+    sendAndReadResponse("AT+HTTPACTION=0");
+    delay(1000);
+    Serial1.println("AT+HTTPREAD=0, 156\r");
+    checkResponse("asfasf", "asfasfasf");
+    Serial.println("\tFinish");
 }
