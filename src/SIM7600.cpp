@@ -25,8 +25,6 @@ SIM7600::SIM7600() : incomingMqttMessage(false), countLinefeed(0) {}
 
 int SIM7600::waitForResponse(String command)
 {
-    Serial.print("Sending: ");
-    Serial.println(command);
     Serial1.println(command);
     int requestStartTime = millis();
     int millisecondsSinceRequestStarted = 0;
@@ -187,6 +185,7 @@ void SIM7600::readJson()
 void SIM7600::initSim()
 {
 
+    String id = System.deviceID();
     readResponse("AT");
     readResponse("AT+CPIN=" + pinCode);
     readResponse("AT+CFUN=1");
@@ -199,35 +198,33 @@ void SIM7600::initSim()
     readResponse("AT+NETOPEN");
     readResponse("AT+IPADDR");
     readResponse("AT+CMQTTSTART");
+    //clientId må være max 23 tegn
+    readResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"");
+    readResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"");
+
+    subData();
 
     Serial.println("\ninitialization successful");
 }
 
-void SIM7600::publishData(String data, String path)
+void SIM7600::publishData(String data)
 {
     String id = System.deviceID();
-    String topicPath = "naboBåtData/" + id + "/" + path;
+    String topicPath = id + "/data";
     char topicCommand[50];
     char payloadCommand[50];
     // max størrelsen avgjør avsluttende melding
     sprintf(payloadCommand, "AT+CMQTTPAYLOAD=0,%d", data.length());
     sprintf(topicCommand, "AT+CMQTTTOPIC=0,%d", topicPath.length());
 
-    //clientId må være max 23 tegn
-    readResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"");
-    // må være tcp protokoll som angitt i manualen
-    readResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"");
-
     // topic command med max størrelse
     readResponse(topicCommand);
     // print topic path
-    Serial1.print(topicPath);
-    delay(20);
+    checkResponse(topicPath, "OK");
     // angi payload command med max størrelse
     readResponse(payloadCommand);
     // print data
-    Serial1.print(data);
-    delay(20);
+    checkResponse(data, "OK");
     // send data
     readResponse("AT+CMQTTPUB=0,1,60");
 }
@@ -235,12 +232,8 @@ void SIM7600::publishData(String data, String path)
 void SIM7600::subData()
 {
     String id = System.deviceID();
-    //clientId må være max 23 tegn
-    checkResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"", "+CMQTTACCQ: 0");
-    // må være tcp protokoll som angitt i manualen
-    checkResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"", "+CMQTTCONNECT: 0,0");
 
-    String topicPath = "naboBåtData/" + id + "/#";
+    String topicPath = id + "/#";
 
     char topicCommand[50];
 
@@ -288,14 +281,13 @@ bool SIM7600::checkIfPinRequired()
     return false;
 }
 
-Vector<String> SIM7600::getCords()
+void SIM7600::getCords()
 {
 
-    Serial1.println("AT+CGPSINFO");
+    waitForResponse("AT+CGPSINFO");
     delay(20);
 
     int count = 0;
-    Vector<String> cords;
     String longitude = "";
     String latitude = "";
 
@@ -307,10 +299,10 @@ Vector<String> SIM7600::getCords()
         {
             if (ch != '.')
             {
+                if (count == 25 && ch == ',')
+                    return;
                 if (count > 24 && count < 36)
                 {
-                    if (ch == ',' && count == 25)
-                        return cords;
                     latitude += ch;
                     if (count == 26)
                         latitude += '.';
@@ -327,15 +319,15 @@ Vector<String> SIM7600::getCords()
         count++;
     }
 
-    cords.append(latitude);
-    cords.append(longitude);
+    // flush output
+    while (Serial1.available() > 0)
+        Serial1.read();
 
-    Serial.print("latitude: ");
-    Serial.println(cords.first());
-    Serial.print("longitude: ");
-    Serial.println(cords.last());
-
-    return cords;
+    if (latitude != "" && longitude != "")
+    {
+        Boat::getInstance()->setLatitude(latitude);
+        Boat::getInstance()->setLongitude(longitude);
+    }
 }
 
 void SIM7600::postDweet(String latitude, String longitude)
@@ -377,10 +369,6 @@ void SIM7600::readMqttMessage()
             if (ch == '\n')
                 countLinefeed++;
 
-            else if (countLinefeed == 2 && ch != '\r' && ch != '\n')
-            {
-                messagePath += ch;
-            }
             else if (countLinefeed == 4 && ch != '\r' && ch != '\n')
             {
                 messagePayload += ch;
@@ -390,8 +378,7 @@ void SIM7600::readMqttMessage()
             {
                 incomingMqttMessage = false;
                 countLinefeed = 0;
-                handleMqttMessage(messagePath, messagePayload);
-                messagePath = "";
+                handleMqttMessage(messagePayload);
                 messagePayload = "";
                 return;
             }
@@ -418,6 +405,7 @@ void SIM7600::checkIO()
     }
     if (Serial1.available() > 0)
     {
+        Serial.print(":");
         delay(10);
         while (Serial1.available())
         {
@@ -449,21 +437,22 @@ bool SIM7600::getMqttStatus()
     return incomingMqttMessage;
 }
 
-void SIM7600::handleMqttMessage(String topic, String payload)
+void SIM7600::handleMqttMessage(String payload)
 {
-    String removePath = "naboBåtData/" + System.deviceID() + "/";
+    Serial.println("\n" + payload);
+    StaticJsonDocument<300> doc;
+    Boat *boat = Boat::getInstance();
+    char json[payload.length()];
+    sprintf(json, payload);
+    DeserializationError error = deserializeJson(doc, json);
 
-    topic.remove(0, removePath.length());
-
-    if (topic == "unlock")
+    if (error)
     {
-        if (payload == "true")
-        {
-            Serial.println("\nunlocking boat");
-        }
-        else if (payload == "false")
-        {
-            Serial.println("\nlocking boat");
-        }
+        Serial.print(F("deserializeJson() failed: "));
+        return;
     }
+
+    bool status = doc["unlock"];
+
+    boat->setStatus(status);
 }

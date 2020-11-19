@@ -1,5 +1,8 @@
+#ifndef SIM7600_H
+#define SIM7600_H
 #include "Particle.h"
 #include <ArduinoJson.h>
+#include "Boat.h"
 
 class SIM7600
 {
@@ -13,20 +16,20 @@ public:
     bool checkResponse(String command, String response);
     int waitForResponse(String command);
 
-    void publishData(String data, String path);
+    void publishData(String data);
     void subData();
 
     bool checkIfPinRequired();
 
     void checkIO();
     void readMqttMessage();
-    void handleMqttMessage(String topic, String payload);
+    void handleMqttMessage(String payload);
 
     void postDweet(String latitude, String longitude);
     void readDweet();
     void readJson();
 
-    Vector<String> getCords();
+    void getCords();
     bool getMqttStatus();
 
 private:
@@ -35,6 +38,6 @@ private:
     ~SIM7600();
     bool incomingMqttMessage;
     int countLinefeed;
-    String messagePath = "";
     String messagePayload = "";
 };
+#endif

@@ -20,7 +20,7 @@ void Boat::deleteInstance()
     }
 }
 
-Boat::Boat() : isUnlocked(false) {}
+Boat::Boat() : isUnlocked(false), latitude("undefined"), longitude("undefined") {}
 
 bool Boat::getStatus()
 {
@@ -32,12 +32,23 @@ void Boat::setStatus(bool status)
     isUnlocked = status;
 }
 
-Vector<String> Boat::getCords()
+String Boat::getLongitude()
 {
-    return cords;
+    return longitude;
 }
 
-void Boat::setCords(Vector<String> newCords)
+void Boat::setLongitude(String newVal)
 {
-    cords = newCords;
+    longitude = newVal;
 }
+
+String Boat::getLatitude()
+{
+    return latitude;
+}
+
+void Boat::setLatitude(String newVal)
+{
+    latitude = newVal;
+}
+

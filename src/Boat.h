@@ -1,3 +1,5 @@
+#ifndef BOAT_H
+#define BOAT_H
 #include "Particle.h"
 
 class Boat
@@ -8,13 +10,19 @@ public:
     static void deleteInstance();
     void setStatus(bool status);
     bool getStatus();
-    void setCords(Vector<String> newCords);
-    Vector<String> getCords();
+
+    String getLongitude();
+    void setLongitude(String newVal);
+
+    String getLatitude();
+    void setLatitude(String newVal);
 
 private:
     static Boat *instance;
     Boat();
     ~Boat();
     bool isUnlocked;
-    Vector<String> cords;
+    String latitude;
+    String longitude;
 };
+#endif

@@ -1,23 +1,24 @@
 #include "SIM7600.h"
+#include "Boat.h"
 
 // int sendAndReadResponse(String command);
 
 SIM7600 *sim = SIM7600::getInstance();
-
+Boat *boat = Boat::getInstance();
 int counter = 0;
-int updateDweet = false;
 
 void setup()
 {
   pinMode(D7, OUTPUT);
   Particle.function("pubData", publishData);
   Particle.function("initSim", initSim);
-  Particle.function("testMqtt", connectMqtt);
-  Particle.function("testSubMqtt", subMqtt);
+  Particle.function("subMqtt", subMqtt);
   Particle.function("changeBaud", changeBaud);
 
   Serial.begin(9600);
   Serial1.begin(19200);
+
+  // sim->getCords();
 }
 
 int subMqtt(String data)
@@ -28,11 +29,11 @@ int subMqtt(String data)
 
 int publishData(String command)
 {
-  Vector<String> cords = sim->getCords();
-  if (cords.isEmpty())
-    return -1;
-  sim->publishData(cords.first(), "latitude");
-  sim->publishData(cords.last(), "longitude");
+  String status = boat->getStatus() ? "true" : "false";
+  String longitude = boat->getLatitude();
+  String latitude = boat->getLongitude();
+
+  sim->publishData("{\"latitude\": " + latitude + ", \"longitude\": " + longitude + ", \"unlock\": " + status + "}");
   return 1;
 }
 
@@ -44,13 +45,8 @@ int initSim(String command)
 
 int changeBaud(String command)
 {
+  sim->readResponse("AT+IPR=" + command);
   Serial1.begin(command.toInt());
-  return 1;
-}
-
-int connectMqtt(String data)
-{
-  sim->publishData(data, "testing");
   return 1;
 }
 
@@ -67,6 +63,8 @@ void loop()
 
     if (counter % 1000 == 0)
     {
+      if (boat->getStatus())
+        Serial.println("boat is unlocked");
       if (sim->checkIfPinRequired())
       {
         Serial.println("\nSIM PIN required, starting initialization");
@@ -75,8 +73,9 @@ void loop()
       }
 
       digitalWrite(D7, !digitalRead(D7));
-      counter = 1;
+      if (counter % 10000 == 0)
+        sim->getCords();
     }
-    counter++;
   }
+  counter++;
 }
