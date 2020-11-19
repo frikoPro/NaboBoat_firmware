@@ -21,25 +21,16 @@ void SIM7600::deleteInstance()
     }
 }
 
-SIM7600::SIM7600() : extraWaitInMillisecondsForResponse(200), deviceId(System.deviceID()) {}
+SIM7600::SIM7600() : incomingMqttMessage(false), countLinefeed(0) {}
 
-bool SIM7600::sendAndReadResponse(String command)
+int SIM7600::waitForResponse(String command)
 {
-    // Send the command
     Serial.print("Sending: ");
     Serial.println(command);
     Serial1.println(command);
     int requestStartTime = millis();
     int millisecondsSinceRequestStarted = 0;
     bool wegotResponse = false;
-
-    String errorCheck = "\nERROR\n";
-    String errorTemp = "";
-    bool errorReponse = true;
-    int count = 0;
-
-    // Setup a timeout
-    requestStartTime = millis();
 
     // Wait until we get a response (or timeout)
     while (!wegotResponse || millisecondsSinceRequestStarted < 2000)
@@ -52,47 +43,90 @@ bool SIM7600::sendAndReadResponse(String command)
         Particle.process();
     }
 
-    // Print out the results
+    return millisecondsSinceRequestStarted;
+}
+
+void SIM7600::readResponse(String command)
+{
+    int millisecondsSinceRequestStarted = waitForResponse(command);
     if (millisecondsSinceRequestStarted < 2000)
     {
         Serial.print("\nCommand: '");
         Serial.print(command);
         Serial.println(" timed out?\n");
     }
+
     else if (Serial1.available() > 0)
     {
         Serial.print("<\n");
 
         // wait a little longer so we get the whole response
-        delay(extraWaitInMillisecondsForResponse);
-
+        delay(200);
         // Print out the response to Serial monitor
         while (Serial1.available())
         {
-            if (errorTemp.compareTo(errorCheck))
-            {
-                errorReponse = false;
-            }
+
             char ch = Serial1.read();
-            if (ch == errorCheck.charAt(count))
-            {
-                errorTemp += ch;
-                count++;
-            }
-            else
-            {
-                errorTemp = "";
-                count = 0;
-            }
+
             if (ch)
             {
                 Serial.print(ch);
             }
         }
+
         Serial.println("\n>");
     }
+}
 
-    return errorReponse;
+bool SIM7600::checkResponse(String command, String response)
+{
+    String responseCache = "";
+    int count = 0;
+
+    int millisecondsSinceRequestStarted = waitForResponse(command);
+    if (millisecondsSinceRequestStarted < 2000)
+    {
+        Serial.print("\nCommand: '");
+        Serial.print(command);
+        Serial.println(" timed out?\n");
+    }
+
+    else if (Serial1.available() > 0)
+    {
+        Serial.print("<\n");
+
+        // wait a little longer so we get the whole response
+        delay(200);
+
+        // Print out the response to Serial monitor
+        while (!responseCache.equals(response) && Serial1.available())
+        {
+
+            char ch = Serial1.read();
+
+            if (ch)
+            {
+                Serial.print(ch);
+                if (ch == response.charAt(count))
+                {
+                    responseCache += ch;
+                    count++;
+                }
+                else
+                {
+                    responseCache = "";
+                    count--;
+                }
+            }
+        }
+
+        Serial.println("\n>");
+
+        if (response.equals(responseCache))
+            return true;
+    }
+
+    return false;
 }
 
 void SIM7600::readJson()
@@ -142,84 +176,116 @@ void SIM7600::readJson()
     if (error)
     {
         Serial.print(F("deserializeJson() failed: "));
-        return false;
+        return;
     }
 
     int temp = doc["with"][0]["content"]["temp"];
     Serial.print("temp: ");
     Serial.println(temp);
-
-    return true;
 }
 
 void SIM7600::initSim()
 {
 
-    sendAndReadResponse("AT");
-    sendAndReadResponse("AT+CPIN=" + pinCode);
-    sendAndReadResponse("AT+CFUN=1");
-    sendAndReadResponse("AT+CGACT=1,1");
-    sendAndReadResponse("AT+CGDCONT=1,\"IP\",\"telenor.smart\"");
+    readResponse("AT");
+    readResponse("AT+CPIN=" + pinCode);
+    readResponse("AT+CFUN=1");
+    readResponse("AT+CGACT=1,1");
+    readResponse("AT+CGDCONT=1,\"IP\",\"telenor.smart\"");
     // sendAndReadResponse("AT+CGSOCKCONT=1,\"IP\",\"telenor.smart\"");
     // sendAndReadResponse("AT+CSOCKSETPN=1");
-    sendAndReadResponse("AT+CGPS=1");
-    sendAndReadResponse("AT+CGREG?");
-    sendAndReadResponse("AT+NETOPEN");
-    sendAndReadResponse("AT+IPADDR");
+    readResponse("AT+CGPS=1");
+    readResponse("AT+CGREG?");
+    readResponse("AT+NETOPEN");
+    readResponse("AT+IPADDR");
+    readResponse("AT+CMQTTSTART");
+
+    Serial.println("\ninitialization successful");
 }
 
 void SIM7600::publishData(String data, String path)
 {
-    sendAndReadResponse("AT+CMQTTSTART");
-    //clientId må være max 23 tegn
-    sendAndReadResponse("AT+CMQTTACCQ=0, \"" + System.deviceID().remove(deviceId.length() - 2) + "\"");
-    // må være tcp protokoll som angitt i manualen
-    sendAndReadResponse("AT+CMQTTCONNECT=0,\"tcp://data.jensa.no:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + *mqttPassword + "\"");
-    String topicPath = "naboBåtData/" + deviceId + "/" + path;
+    String id = System.deviceID();
+    String topicPath = "naboBåtData/" + id + "/" + path;
     char topicCommand[50];
     char payloadCommand[50];
     // max størrelsen avgjør avsluttende melding
     sprintf(payloadCommand, "AT+CMQTTPAYLOAD=0,%d", data.length());
     sprintf(topicCommand, "AT+CMQTTTOPIC=0,%d", topicPath.length());
 
+    //clientId må være max 23 tegn
+    readResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"");
+    // må være tcp protokoll som angitt i manualen
+    readResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"");
+
     // topic command med max størrelse
-    sendAndReadResponse(topicCommand);
+    readResponse(topicCommand);
     // print topic path
     Serial1.print(topicPath);
     delay(20);
     // angi payload command med max størrelse
-    sendAndReadResponse(payloadCommand);
+    readResponse(payloadCommand);
     // print data
     Serial1.print(data);
     delay(20);
     // send data
-    sendAndReadResponse("AT+CMQTTPUB=0,1,60");
+    readResponse("AT+CMQTTPUB=0,1,60");
 }
 
-void SIM7600::checkInput()
+void SIM7600::subData()
 {
-    if (Serial.available() > 0)
-    {
-        Serial.print(">");
-        delay(100);
-        while (Serial.available())
-        {
-            char ch = Serial.read();
-            Serial.print(ch);
-            Serial1.print(ch);
-        }
-    }
+    String id = System.deviceID();
+    //clientId må være max 23 tegn
+    checkResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"", "+CMQTTACCQ: 0");
+    // må være tcp protokoll som angitt i manualen
+    checkResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"", "+CMQTTCONNECT: 0,0");
+
+    String topicPath = "naboBåtData/" + id + "/#";
+
+    char topicCommand[50];
+
+    sprintf(topicCommand, "AT+CMQTTSUBTOPIC=0,%d,2", topicPath.length());
+    readResponse(topicCommand);
+    checkResponse(topicPath, "OK");
+    readResponse("AT+CMQTTSUB=0");
+}
+
+bool SIM7600::checkIfPinRequired()
+{
+
+    String cpinRequiredString = "+CPIN: SIM PIN";
+    String replyString = "";
+    int count = 0;
+    Serial1.println("AT+CPIN?");
+    delay(10);
+
     if (Serial1.available() > 0)
     {
+        delay(20);
         while (Serial1.available())
         {
             char ch = Serial1.read();
             if (ch)
             {
-                Serial.print(ch);
+                if (ch == cpinRequiredString.charAt(count))
+                {
+                    replyString += ch;
+                    count++;
+                    if (cpinRequiredString.compareTo(replyString) == 0)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    replyString = "";
+                    count = 0;
+                }
             }
         }
     }
+
+    return false;
 }
 
 Vector<String> SIM7600::getCords()
@@ -277,7 +343,7 @@ void SIM7600::postDweet(String latitude, String longitude)
 
     String getRequest = "GET http://www.dweet.io/dweet/for/" + System.deviceID() + "?latitude=" + latitude + "&longitude=" + longitude + " HTTP/1.1\n";
     Serial.println(getRequest);
-    sendAndReadResponse("AT+CHTTPACT=\"dweet.io\",80");
+    readResponse("AT+CHTTPACT=\"dweet.io\",80");
     delay(200);
     Serial1.println(getRequest);
     Serial1.println("Host: dweet.io\n");
@@ -289,13 +355,115 @@ void SIM7600::postDweet(String latitude, String longitude)
 }
 
 void SIM7600::readDweet()
+
 {
     // String request = "GET /get/latest/dweet/for/2a003b000a47373336323230 HTTP/1.1\r\nHost: www.dweet.io\r\n\r\n";
-    sendAndReadResponse("AT+HTTPINIT");
-    sendAndReadResponse("AT+HTTPPARA=\"URL\", \"http://dweet.io/get/latest/dweet/for/2a003b000a47373336323230\"");
-    sendAndReadResponse("AT+HTTPACTION=0");
+    readResponse("AT+HTTPINIT");
+    readResponse("AT+HTTPPARA=\"URL\", \"http://dweet.io/get/latest/dweet/for/2a003b000a47373336323230\"");
+    readResponse("AT+HTTPACTION=0");
     delay(1000);
     Serial1.println("AT+HTTPREAD=0, 156\r");
-    checkResponse("asfasf", "asfasfasf");
-    Serial.println("\tFinish");
+    readJson();
+}
+
+void SIM7600::readMqttMessage()
+{
+    delay(10);
+    while (Serial1.available())
+    {
+        char ch = Serial1.read();
+        if (ch)
+        {
+            if (ch == '\n')
+                countLinefeed++;
+
+            else if (countLinefeed == 2 && ch != '\r' && ch != '\n')
+            {
+                messagePath += ch;
+            }
+            else if (countLinefeed == 4 && ch != '\r' && ch != '\n')
+            {
+                messagePayload += ch;
+            }
+
+            else if (countLinefeed > 4)
+            {
+                incomingMqttMessage = false;
+                countLinefeed = 0;
+                handleMqttMessage(messagePath, messagePayload);
+                messagePath = "";
+                messagePayload = "";
+                return;
+            }
+        }
+    }
+}
+void SIM7600::checkIO()
+{
+
+    String incomingMessage = "";
+    String mqttStringCheck = "+CMQTTRXSTART: ";
+    int countChar = 0;
+
+    if (Serial.available() > 0)
+    {
+        Serial.print(">");
+        delay(100);
+        while (Serial.available())
+        {
+            char ch = Serial.read();
+            Serial.print(ch);
+            Serial1.print(ch);
+        }
+    }
+    if (Serial1.available() > 0)
+    {
+        delay(10);
+        while (Serial1.available())
+        {
+            char ch = Serial1.read();
+            if (ch)
+            {
+                Serial.print(ch);
+                if (ch == mqttStringCheck.charAt(countChar))
+                {
+                    incomingMessage += ch;
+                    countChar++;
+                    if (mqttStringCheck.equals(incomingMessage))
+                    {
+                        incomingMqttMessage = true;
+                    }
+                }
+                else
+                {
+                    incomingMessage = "";
+                    countChar = 0;
+                }
+            }
+        }
+    }
+}
+
+bool SIM7600::getMqttStatus()
+{
+    return incomingMqttMessage;
+}
+
+void SIM7600::handleMqttMessage(String topic, String payload)
+{
+    String removePath = "naboBåtData/" + System.deviceID() + "/";
+
+    topic.remove(0, removePath.length());
+
+    if (topic == "unlock")
+    {
+        if (payload == "true")
+        {
+            Serial.println("\nunlocking boat");
+        }
+        else if (payload == "false")
+        {
+            Serial.println("\nlocking boat");
+        }
+    }
 }
