@@ -20,7 +20,7 @@ void Boat::deleteInstance()
     }
 }
 
-Boat::Boat() : isUnlocked(false), latitude("undefined"), longitude("undefined") {}
+Boat::Boat() : isUnlocked(false), latitude("\"none\""), longitude("\"none\"") {}
 
 bool Boat::getStatus()
 {
@@ -51,4 +51,3 @@ void Boat::setLatitude(String newVal)
 {
     latitude = newVal;
 }
-

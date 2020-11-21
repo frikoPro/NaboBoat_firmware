@@ -300,7 +300,7 @@ void SIM7600::getCords()
             if (ch != '.')
             {
                 if (count == 25 && ch == ',')
-                    return;
+                    break;
                 if (count > 24 && count < 36)
                 {
                     latitude += ch;
@@ -319,9 +319,7 @@ void SIM7600::getCords()
         count++;
     }
 
-    // flush output
-    while (Serial1.available() > 0)
-        Serial1.read();
+    Serial1.flush();
 
     if (latitude != "" && longitude != "")
     {
@@ -385,56 +383,15 @@ void SIM7600::readMqttMessage()
         }
     }
 }
-void SIM7600::checkIO()
-{
-
-    String incomingMessage = "";
-    String mqttStringCheck = "+CMQTTRXSTART: ";
-    int countChar = 0;
-
-    if (Serial.available() > 0)
-    {
-        Serial.print(">");
-        delay(100);
-        while (Serial.available())
-        {
-            char ch = Serial.read();
-            Serial.print(ch);
-            Serial1.print(ch);
-        }
-    }
-    if (Serial1.available() > 0)
-    {
-        Serial.print(":");
-        delay(10);
-        while (Serial1.available())
-        {
-            char ch = Serial1.read();
-            if (ch)
-            {
-                Serial.print(ch);
-                if (ch == mqttStringCheck.charAt(countChar))
-                {
-                    incomingMessage += ch;
-                    countChar++;
-                    if (mqttStringCheck.equals(incomingMessage))
-                    {
-                        incomingMqttMessage = true;
-                    }
-                }
-                else
-                {
-                    incomingMessage = "";
-                    countChar = 0;
-                }
-            }
-        }
-    }
-}
 
 bool SIM7600::getMqttStatus()
 {
     return incomingMqttMessage;
+}
+
+void SIM7600::setMqttStatus(bool status)
+{
+    incomingMqttMessage = status;
 }
 
 void SIM7600::handleMqttMessage(String payload)

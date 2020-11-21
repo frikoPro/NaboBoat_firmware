@@ -1,11 +1,18 @@
 #include "SIM7600.h"
 #include "Boat.h"
+#include <ParticleSoftSerial.h>
 
-// int sendAndReadResponse(String command);
+#define BT bluetooth
+
+// bluetooth
+ParticleSoftSerial bluetooth(D2, D3);
 
 SIM7600 *sim = SIM7600::getInstance();
 Boat *boat = Boat::getInstance();
 int counter = 0;
+
+int countLinefeed;
+String messagePayload = "";
 
 void setup()
 {
@@ -17,6 +24,7 @@ void setup()
 
   Serial.begin(9600);
   Serial1.begin(19200);
+  BT.begin(19200);
 
   // sim->getCords();
 }
@@ -50,6 +58,64 @@ int changeBaud(String command)
   return 1;
 }
 
+void checkIO()
+{
+  if (Serial.available() > 0)
+  {
+    Serial.print(">");
+    delay(100);
+    while (Serial.available())
+    {
+      char ch = Serial.read();
+      Serial.print(ch);
+      Serial1.print(ch);
+    }
+  }
+
+  if (BT.available() > 0)
+  {
+    BT.print(">");
+    delay(100);
+    while (BT.available())
+    {
+      char ch = BT.read();
+      Serial1.print(ch);
+    }
+  }
+
+  String incomingMessage = "";
+  String mqttStringCheck = "+CMQTTRXSTART: ";
+  int countChar = 0;
+  if (Serial1.available() > 0)
+  {
+    Serial.print(":");
+    delay(10);
+    while (Serial1.available())
+    {
+      char ch = Serial1.read();
+      if (ch)
+      {
+        Serial.print(ch);
+        BT.print(ch);
+        if (ch == mqttStringCheck.charAt(countChar))
+        {
+          incomingMessage += ch;
+          countChar++;
+          if (mqttStringCheck.equals(incomingMessage))
+          {
+            sim->setMqttStatus(true);
+          }
+        }
+        else
+        {
+          incomingMessage = "";
+          countChar = 0;
+        }
+      }
+    }
+  }
+}
+
 void loop()
 {
 
@@ -59,12 +125,10 @@ void loop()
   }
   else
   {
-    sim->checkIO();
+    checkIO();
 
     if (counter % 1000 == 0)
     {
-      if (boat->getStatus())
-        Serial.println("boat is unlocked");
       if (sim->checkIfPinRequired())
       {
         Serial.println("\nSIM PIN required, starting initialization");
@@ -73,8 +137,11 @@ void loop()
       }
 
       digitalWrite(D7, !digitalRead(D7));
-      if (counter % 10000 == 0)
+      if (counter % 60000 == 0)
+      {
         sim->getCords();
+        publishData("ok");
+      }
     }
   }
   counter++;

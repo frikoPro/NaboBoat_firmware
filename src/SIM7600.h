@@ -21,7 +21,6 @@ public:
 
     bool checkIfPinRequired();
 
-    void checkIO();
     void readMqttMessage();
     void handleMqttMessage(String payload);
 
@@ -31,6 +30,7 @@ public:
 
     void getCords();
     bool getMqttStatus();
+    void setMqttStatus(bool status);
 
 private:
     static SIM7600 *instance;
