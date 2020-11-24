@@ -347,7 +347,6 @@ void SIM7600::postDweet(String latitude, String longitude)
 void SIM7600::readDweet()
 
 {
-    // String request = "GET /get/latest/dweet/for/2a003b000a47373336323230 HTTP/1.1\r\nHost: www.dweet.io\r\n\r\n";
     readResponse("AT+HTTPINIT");
     readResponse("AT+HTTPPARA=\"URL\", \"http://dweet.io/get/latest/dweet/for/2a003b000a47373336323230\"");
     readResponse("AT+HTTPACTION=0");
