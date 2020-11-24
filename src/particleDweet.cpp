@@ -5,41 +5,58 @@
 #include "Particle.h"
 #line 1 "c:/Users/fredr/Desktop/NaboBoat_firmware/src/particleDweet.ino"
 #include "SIM7600.h"
-
-// int sendAndReadResponse(String command);
+#include "Boat.h"
+#include <ParticleSoftSerial.h>
 
 void setup();
+int subMqtt(String data);
+int publishData(String command);
+int initSim(String command);
+int changeBaud(String command);
+void checkIO();
 void loop();
 #line 5 "c:/Users/fredr/Desktop/NaboBoat_firmware/src/particleDweet.ino"
+#define BT bluetooth
+
+// bluetooth
+ParticleSoftSerial bluetooth(D2, D3);
+
 SIM7600 *sim = SIM7600::getInstance();
-
+Boat *boat = Boat::getInstance();
 int counter = 0;
-int updateDweet = false;
 
-int particlePubData(String command);
-int initSim(String command);
-int readDweet(String command);
-int connectMqtt(String data);
+int countLinefeed;
+String messagePayload = "";
 
 void setup()
 {
   pinMode(D7, OUTPUT);
-  Particle.function("pubData", particlePubData);
+  pinMode(D4, OUTPUT);
+  Particle.function("pubData", publishData);
   Particle.function("initSim", initSim);
-  Particle.function("readDweet", readDweet);
-  Particle.function("connectMqtt", connectMqtt);
+  Particle.function("subMqtt", subMqtt);
+  Particle.function("changeBaud", changeBaud);
 
   Serial.begin(9600);
-  Serial1.begin(115200);
+  Serial1.begin(19200);
+  BT.begin(19200);
+
+  // sim->getCords();
 }
 
-int particlePubData(String command)
+int subMqtt(String data)
 {
-  Vector<String> cords = sim->getCords();
-  if (cords.isEmpty())
-    return -1;
-  sim->publishData(cords.first(), "latitude");
-  sim->publishData(cords.last(), "longitude");
+  sim->subData();
+  return 1;
+}
+
+int publishData(String command)
+{
+  String status = boat->getStatus() ? "true" : "false";
+  String longitude = boat->getLatitude();
+  String latitude = boat->getLongitude();
+
+  sim->publishData("{\"latitude\": " + latitude + ", \"longitude\": " + longitude + ", \"unlock\": " + status + "}");
   return 1;
 }
 
@@ -49,27 +66,107 @@ int initSim(String command)
   return 1;
 }
 
-int readDweet(String command)
+int changeBaud(String command)
 {
-  sim->readDweet();
+  sim->readResponse("AT+IPR=" + command);
+  Serial1.begin(command.toInt());
   return 1;
 }
 
-int connectMqtt(String data)
+void checkIO()
 {
-  sim->publishData(data, "testing");
-  return 1;
+  if (Serial.available() > 0)
+  {
+    Serial.print(">");
+    delay(100);
+    while (Serial.available())
+    {
+      char ch = Serial.read();
+      Serial.print(ch);
+      Serial1.print(ch);
+    }
+  }
+
+  if (BT.available() > 0)
+  {
+    BT.print(">");
+    delay(100);
+    while (BT.available())
+    {
+      char ch = BT.read();
+      Serial1.print(ch);
+    }
+  }
+
+  String incomingMessage = "";
+  String mqttStringCheck = "+CMQTTRXSTART: ";
+  int countChar = 0;
+  if (Serial1.available() > 0)
+  {
+    Serial.print(":");
+    delay(10);
+    while (Serial1.available())
+    {
+      char ch = Serial1.read();
+      if (ch)
+      {
+        Serial.print(ch);
+        BT.print(ch);
+        if (ch == mqttStringCheck.charAt(countChar))
+        {
+          incomingMessage += ch;
+          countChar++;
+          if (mqttStringCheck.equals(incomingMessage))
+          {
+            sim->setMqttStatus(true);
+          }
+        }
+        else
+        {
+          incomingMessage = "";
+          countChar = 0;
+        }
+      }
+    }
+  }
 }
 
 void loop()
 {
 
-  sim->checkInput();
-
-  if (counter % 1000 == 0)
+  if (sim->getMqttStatus())
   {
-    digitalWrite(D7, !digitalRead(D7));
-    counter = 1;
+    sim->readMqttMessage();
+  }
+  else
+  {
+    if (boat->getStatus())
+    {
+      digitalWrite(D4, true);
+    }
+    else
+    {
+      digitalWrite(D4, false);
+    }
+
+    checkIO();
+
+    if (counter % 1000 == 0)
+    {
+      if (sim->checkIfPinRequired())
+      {
+        Serial.println("\nSIM PIN required, starting initialization");
+        delay(1000);
+        sim->initSim();
+      }
+
+      digitalWrite(D7, !digitalRead(D7));
+      if (counter % 60000 == 0)
+      {
+        sim->getCords();
+        // publishData("ok");
+      }
+    }
   }
   counter++;
 }

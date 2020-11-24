@@ -11,22 +11,35 @@ SIM7600 *sim = SIM7600::getInstance();
 Boat *boat = Boat::getInstance();
 int counter = 0;
 
-int countLinefeed;
-String messagePayload = "";
+String incomingMessage = "";
 
 void setup()
 {
+  WiFi.off();
   pinMode(D7, OUTPUT);
+  pinMode(D4, OUTPUT);
   Particle.function("pubData", publishData);
   Particle.function("initSim", initSim);
   Particle.function("subMqtt", subMqtt);
+  Particle.function("readDweet", readDweet);
   Particle.function("changeBaud", changeBaud);
+  Particle.function("connectMqtt", connectMqtt);
 
   Serial.begin(9600);
   Serial1.begin(19200);
-  BT.begin(19200);
+  BT.begin(115200);
+}
 
-  // sim->getCords();
+int readDweet(String para)
+{
+  sim->readDweet();
+  return 1;
+}
+
+int connectMqtt(String para)
+{
+  sim->connectMqtt();
+  return 1;
 }
 
 int subMqtt(String data)
@@ -38,10 +51,9 @@ int subMqtt(String data)
 int publishData(String command)
 {
   String status = boat->getStatus() ? "true" : "false";
-  String longitude = boat->getLatitude();
-  String latitude = boat->getLongitude();
-
-  sim->publishData("{\"latitude\": " + latitude + ", \"longitude\": " + longitude + ", \"unlock\": " + status + "}");
+  String latitude = "\"" + boat->getLatitude() + "\"";
+  String longitude = "\"" + boat->getLongitude() + "\"";
+  sim->publishData("{\"latitude\": " + latitude + ", \"longitude\": " + longitude + ", \"unlock\": " + status + "}", "data");
   return 1;
 }
 
@@ -83,12 +95,10 @@ void checkIO()
     }
   }
 
-  String incomingMessage = "";
   String mqttStringCheck = "+CMQTTRXSTART: ";
   int countChar = 0;
   if (Serial1.available() > 0)
   {
-    Serial.print(":");
     delay(10);
     while (Serial1.available())
     {
@@ -104,6 +114,8 @@ void checkIO()
           if (mqttStringCheck.equals(incomingMessage))
           {
             sim->setMqttStatus(true);
+            incomingMessage = "";
+            return;
           }
         }
         else
@@ -118,6 +130,15 @@ void checkIO()
 
 void loop()
 {
+  if (counter % 1000 == 0)
+  {
+    digitalWrite(D7, !digitalRead(D7));
+    if (sim->checkIfPinRequired())
+    {
+      Serial.println("\nSIM PIN required, starting initialization");
+      sim->initSim();
+    }
+  }
 
   if (sim->getMqttStatus())
   {
@@ -125,24 +146,26 @@ void loop()
   }
   else
   {
-    checkIO();
 
-    if (counter % 1000 == 0)
+    if (boat->getStatus())
     {
-      if (sim->checkIfPinRequired())
-      {
-        Serial.println("\nSIM PIN required, starting initialization");
-        delay(1000);
-        sim->initSim();
-      }
-
-      digitalWrite(D7, !digitalRead(D7));
-      if (counter % 60000 == 0)
-      {
-        sim->getCords();
-        publishData("ok");
-      }
+      digitalWrite(D4, HIGH);
     }
+    else
+    {
+      digitalWrite(D4, LOW);
+    }
+
+    checkIO();
+    if (counter % 60000 == 0)
+    {
+
+      sim->getCords();
+      publishData("ok");
+      // check if missed message
+      sim->readDweet();
+    }
+
+    counter++;
   }
-  counter++;
 }

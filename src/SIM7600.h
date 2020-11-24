@@ -11,15 +11,18 @@ public:
     static void deleteInstance();
 
     void initSim();
+    void connectMqtt();
 
     void readResponse(String command);
     bool checkResponse(String command, String response);
     int waitForResponse(String command);
 
-    void publishData(String data);
+    void publishData(String data, String path);
     void subData();
+    void setLastWill();
 
     bool checkIfPinRequired();
+    bool checkMqttComs();
 
     void readMqttMessage();
     void handleMqttMessage(String payload);
