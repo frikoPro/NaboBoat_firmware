@@ -3,6 +3,9 @@
 
 SIM7600 *SIM7600::instance = nullptr;
 
+// bluetooth coms, must be another variable name
+ParticleSoftSerial bt(D2, D3);
+
 SIM7600 *SIM7600::getInstance()
 {
     if (!instance)
@@ -21,8 +24,9 @@ void SIM7600::deleteInstance()
     }
 }
 
-SIM7600::SIM7600() : incomingMqttMessage(false), countLinefeed(0) {}
+SIM7600::SIM7600() : incomingMqttMessage(false) {}
 
+// Wait for the whole response
 int SIM7600::waitForResponse(String command)
 {
     Serial1.println(command);
@@ -44,12 +48,14 @@ int SIM7600::waitForResponse(String command)
     return millisecondsSinceRequestStarted;
 }
 
+// read the response
 void SIM7600::readResponse(String command)
 {
     int millisecondsSinceRequestStarted = waitForResponse(command);
     if (millisecondsSinceRequestStarted < 2000)
     {
         Serial.print("\nCommand: '");
+
         Serial.print(command);
         Serial.println(" timed out?\n");
     }
@@ -58,9 +64,8 @@ void SIM7600::readResponse(String command)
     {
         Serial.print("<\n");
 
-        // wait a little longer so we get the whole response
         delay(200);
-        // Print out the response to Serial monitor
+
         while (Serial1.available())
         {
 
@@ -68,6 +73,7 @@ void SIM7600::readResponse(String command)
 
             if (ch)
             {
+                bt.print(ch);
                 Serial.print(ch);
             }
         }
@@ -76,11 +82,12 @@ void SIM7600::readResponse(String command)
     }
 }
 
+// Lese responsen and compare, return boolean based on that
 bool SIM7600::checkResponse(String command, String response)
 {
-    String responseCache = "";
+    String cacheString = "";
     int count = 0;
-    bool correctResponse = false;
+    bool expectedResponse = false;
 
     int millisecondsSinceRequestStarted = waitForResponse(command);
     if (millisecondsSinceRequestStarted < 2000)
@@ -92,41 +99,42 @@ bool SIM7600::checkResponse(String command, String response)
 
     else if (Serial1.available() > 0)
     {
-        Serial.print("<\n");
 
-        // wait a little longer so we get the whole response
         delay(200);
 
-        // Print out the response to Serial monitor
         while (Serial1.available())
         {
             char ch = Serial1.read();
 
             if (ch)
             {
-                Serial.print(ch);
+                // Is char equal to first char in expected reply
+                // if, add to the cacheString and then check next char
                 if (ch == response.charAt(count))
                 {
-                    responseCache += ch;
+                    cacheString += ch;
                     count++;
-                    correctResponse = true;
-                    Serial1.flush();
-                    return correctResponse;
+                    // if response is equal, nothing more to do, return true
+                    if (response.equals(cacheString))
+                    {
+                        expectedResponse = true;
+                        return expectedResponse;
+                    }
                 }
+                // char is not equal, reset comparison
                 else
                 {
-                    responseCache = "";
+                    cacheString = "";
                     count = 0;
                 }
             }
         }
-
-        Serial.println("\n>");
     }
 
-    return correctResponse;
+    return expectedResponse;
 }
 
+// read JSON data
 void SIM7600::readJson()
 {
 
@@ -136,6 +144,7 @@ void SIM7600::readJson()
     int timeOnSend = millis();
     int timePastSend = 0;
 
+    // wait at least two seconds for whole response, else return
     while (timePastSend < 2000)
     {
         timePastSend = millis() - timeOnSend;
@@ -166,10 +175,17 @@ void SIM7600::readJson()
         }
     }
 
+    if (timePastSend >= 2000)
+    {
+        Serial.println("No response");
+        return;
+    }
+
     char json[jsonString.length()];
 
     sprintf(json, jsonString);
 
+    //Convert to JSON object
     DeserializationError error = deserializeJson(doc, json);
 
     if (error)
@@ -180,9 +196,11 @@ void SIM7600::readJson()
 
     bool unlock = doc["with"][0]["content"]["unlock"];
     Boat::getInstance()->setStatus(unlock);
+    // confirmed recieved data
     publishData(unlock ? "unlocked" : "locked", "confirmStatus");
 }
 
+// Initialize GSM-module, if pincode is required, its called
 void SIM7600::initSim()
 {
     readResponse("AT");
@@ -190,14 +208,12 @@ void SIM7600::initSim()
     readResponse("AT+CFUN=1");
     readResponse("AT+CGACT=1,1");
     readResponse("AT+CGDCONT=1,\"IP\",\"telenor.smart\"");
-    // sendAndReadResponse("AT+CGSOCKCONT=1,\"IP\",\"telenor.smart\"");
-    // sendAndReadResponse("AT+CSOCKSETPN=1");
     readResponse("AT+CGPS=1");
     readResponse("AT+CGREG?");
     readResponse("AT+NETOPEN");
     readResponse("AT+IPADDR");
-    //clientId må være max 23 tegn
     connectMqtt();
+    readDweet();
     Serial.println("\ninitialization successful");
 }
 
@@ -205,37 +221,56 @@ void SIM7600::connectMqtt()
 {
     String id = System.deviceID();
     readResponse("AT+CMQTTSTART");
+    // Set client Id, max_length 23
     readResponse("AT+CMQTTACCQ=0, \"" + id.remove(id.length() - 2) + "\"");
+    // connect string
     readResponse("AT+CMQTTCONNECT=0,\"tcp://161.35.167.71:1883\",90,1, \"" + mqttUsername + "\"" + ",\"" + mqttPassword + "\"");
 
     subData();
     setLastWill();
 }
 
+//Publish to mqtt topic
 void SIM7600::publishData(String data, String path)
 {
     String id = System.deviceID();
     String topicPath = id + "/" + path;
+
     char topicCommand[50];
     char payloadCommand[50];
-    // max størrelsen avgjør avsluttende melding
-    sprintf(payloadCommand, "AT+CMQTTPAYLOAD=0,%d", data.length());
-    sprintf(topicCommand, "AT+CMQTTTOPIC=0,%d", topicPath.length());
 
-    // topic command med max størrelse
-    readResponse(topicCommand);
-    // print topic path
-    // checkResponse(topicPath, "OK");
+    //Announce topicpath will come, set topic length for ending command
+    sprintf(topicCommand, "AT+CMQTTTOPIC=0,%d", topicPath.length());
+    // Announce payload will come, set payload length for ending command
+    sprintf(payloadCommand, "AT+CMQTTPAYLOAD=0,%d", data.length());
+
+    // if ERROR response, check if pin required, else check mqtt connection
+    if (checkResponse(topicCommand, "ERROR"))
+    {
+        // bt.println("Publish failed");
+        Serial.println("Publish failed");
+        if (checkResponse("AT+CPIN?", "+CPIN: SIM PIN"))
+        {
+            Serial.println("\nSIM PIN required, starting initialization");
+            bt.println("\nSIM PIN required, starting initialization");
+            initSim();
+            return;
+        }
+        else if (!checkResponse("AT+CMQTTCONNECT?", "tcp://161.35.167.71:1883"))
+        {
+            Serial.println("\nNot connected to MQTT, connecting now");
+            bt.println("\nNot connected to MQTT, connecting now");
+            connectMqtt();
+            return;
+        }
+    }
     readResponse(topicPath);
-    // angi payload command med max størrelse
     readResponse(payloadCommand);
-    // print data
-    // checkResponse(data, "OK");
     readResponse(data);
-    // send data
     readResponse("AT+CMQTTPUB=0,1,60");
 }
 
+// Subscribe to mqtt topic
 void SIM7600::subData()
 {
     String id = System.deviceID();
@@ -250,6 +285,7 @@ void SIM7600::subData()
     readResponse("AT+CMQTTSUB=0");
 }
 
+// If disconnection happens unintentionally, post to this topic, with this message
 void SIM7600::setLastWill()
 {
 
@@ -266,83 +302,7 @@ void SIM7600::setLastWill()
     readResponse(lastWillMsg);
 }
 
-bool SIM7600::checkIfPinRequired()
-{
-
-    String cpinRequiredString = "+CPIN: SIM PIN";
-    String replyString = "";
-    bool pinRequired = false;
-    int count = 0;
-    Serial1.println("AT+CPIN?");
-    delay(10);
-
-    if (Serial1.available() > 0)
-    {
-        delay(20);
-        while (Serial1.available())
-        {
-            char ch = Serial1.read();
-            if (ch)
-            {
-                if (ch == cpinRequiredString.charAt(count))
-                {
-                    replyString += ch;
-                    count++;
-                    if (cpinRequiredString.compareTo(replyString) == 0)
-                    {
-                        pinRequired = true;
-                    }
-                }
-                else
-                {
-                    replyString = "";
-                    count = 0;
-                }
-            }
-        }
-    }
-
-    return pinRequired;
-}
-
-bool SIM7600::checkMqttComs()
-{
-    String unconnectedReply = "+CMQTTCONNECT: 0\n";
-    String replyString = "";
-    bool reconnect = false;
-    int count = 0;
-    Serial1.println("AT+CMQTTCONNECT?");
-    delay(10);
-
-    if (Serial1.available() > 0)
-    {
-        delay(20);
-        while (Serial1.available())
-        {
-            char ch = Serial1.read();
-            if (ch)
-            {
-                if (ch == unconnectedReply.charAt(count))
-                {
-                    replyString += ch;
-                    count++;
-                    if (unconnectedReply.compareTo(replyString) == 0)
-                    {
-                        reconnect = true;
-                    }
-                }
-                else
-                {
-                    replyString = "";
-                    count = 0;
-                }
-            }
-        }
-    }
-
-    return reconnect;
-}
-
+// get latitude and longitude
 void SIM7600::getCords()
 {
 
@@ -361,6 +321,7 @@ void SIM7600::getCords()
         {
             if (ch != '.')
             {
+                // if first character of coordinates is ",", then break loop
                 if (count == 25 && ch == ',')
                     break;
                 if (count > 24 && count < 36)
@@ -383,6 +344,7 @@ void SIM7600::getCords()
 
     Serial1.flush();
 
+    // if empty then don't replace
     if (latitude != "" && longitude != "")
     {
         Boat::getInstance()->setLatitude(latitude);
@@ -390,62 +352,62 @@ void SIM7600::getCords()
     }
 }
 
-void SIM7600::postDweet(String latitude, String longitude)
-{
-
-    String getRequest = "GET http://www.dweet.io/dweet/for/" + System.deviceID() + "?latitude=" + latitude + "&longitude=" + longitude + " HTTP/1.1\n";
-    Serial.println(getRequest);
-    readResponse("AT+CHTTPACT=\"dweet.io\",80");
-    delay(200);
-    Serial1.println(getRequest);
-    Serial1.println("Host: dweet.io\n");
-    Serial1.println("User-Agent: mozilly\n");
-    Serial1.println("Content-Length: 0\n");
-    Serial1.print(char(26));
-    delay(20);
-    Serial1.print(char(26));
-}
-
+// read json data from dweet.io
 void SIM7600::readDweet()
 {
     readResponse("AT+HTTPINIT");
     readResponse("AT+HTTPPARA=\"URL\", \"http://dweet.io/get/latest/dweet/for/" + System.deviceID() + "\"");
     readResponse("AT+HTTPACTION=0");
+    delay(1000);
     Serial1.println("AT+HTTPREAD=0, 300\r");
     readJson();
 }
 
+// get payload from mqttMessage
 void SIM7600::readMqttMessage()
 {
-
+    int countLinefeed = 0;
+    String messagePayload = "";
+    int timeOnRecv = millis();
+    int timePastRecv = 0;
+    // count linefeeds
+    // payload starts at linefeed number 4
     delay(10);
-    while (Serial1.available())
+    while (timePastRecv < 2000)
     {
-        char ch = Serial1.read();
-        if (ch)
+        timePastRecv = millis() - timeOnRecv;
+        if (Serial1.available() > 0)
         {
-            if (ch == '\n')
+            char ch = Serial1.read();
+            if (ch)
             {
-                countLinefeed++;
-            }
 
-            else if (countLinefeed == 4 && ch != '\r' && ch != '\n')
-            {
-                messagePayload += ch;
-            }
+                if (ch == '\n')
+                {
+                    countLinefeed++;
+                }
 
-            else if (countLinefeed > 4)
-            {
-                handleMqttMessage(messagePayload);
-                countLinefeed = 0;
-                messagePayload = "";
-                incomingMqttMessage = false;
-                return;
+                //exclude carriage return and linefeed
+                else if (countLinefeed == 4 && ch != '\r' && ch != '\n')
+                {
+                    messagePayload += ch;
+                }
+
+                else if (countLinefeed > 4)
+                {
+                    handleMqttMessage(messagePayload);
+                    incomingMqttMessage = false;
+                    return;
+                }
             }
         }
     }
+
+    incomingMqttMessage = false;
+    Serial.print("failed to recieve mqtt message");
 }
 
+// handle JSON object from payload
 void SIM7600::handleMqttMessage(String payload)
 {
     StaticJsonDocument<300> doc;
@@ -464,14 +426,17 @@ void SIM7600::handleMqttMessage(String payload)
 
     boat->setStatus(status);
 
+    // // confirm message recieved
     publishData(status ? "unlocked" : "locked", "confirmStatus");
 }
 
+// return current state, if true, incoming mqtt message
 bool SIM7600::getMqttStatus()
 {
     return incomingMqttMessage;
 }
 
+// set if incoming mqtt message has arrived
 void SIM7600::setMqttStatus(bool status)
 {
     incomingMqttMessage = status;

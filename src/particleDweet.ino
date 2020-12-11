@@ -2,22 +2,24 @@
 #include "Boat.h"
 #include <ParticleSoftSerial.h>
 
-#define BT bluetooth
-
-// bluetooth
-ParticleSoftSerial bluetooth(D2, D3);
+//bluetooth
+ParticleSoftSerial BT(D2, D3);
 
 SIM7600 *sim = SIM7600::getInstance();
 Boat *boat = Boat::getInstance();
 int counter = 0;
 
+// incoming messages may be read from over multiple loops, keep it global
 String incomingMessage = "";
 
 void setup()
 {
-  WiFi.off();
+  // D7 status light
   pinMode(D7, OUTPUT);
+  // Relay for opening boat
   pinMode(D4, OUTPUT);
+
+  //cloud functions
   Particle.function("pubData", publishData);
   Particle.function("initSim", initSim);
   Particle.function("subMqtt", subMqtt);
@@ -27,7 +29,15 @@ void setup()
 
   Serial.begin(9600);
   Serial1.begin(19200);
-  BT.begin(115200);
+  BT.begin(19200);
+
+  // check if GSM-module needs pincode
+  if (sim->checkResponse("AT+CPIN?", "+CPIN: SIM PIN"))
+  {
+    // BT.println("\nSIM PIN required, starting initialization");
+    Serial.println("\nSIM PIN required, starting initialization");
+    sim->initSim();
+  }
 }
 
 int readDweet(String para)
@@ -50,7 +60,7 @@ int subMqtt(String data)
 
 int publishData(String command)
 {
-  String status = boat->getStatus() ? "true" : "false";
+  String status = boat->getStatus() ? "1" : "0";
   String latitude = "\"" + boat->getLatitude() + "\"";
   String longitude = "\"" + boat->getLongitude() + "\"";
   sim->publishData("{\"latitude\": " + latitude + ", \"longitude\": " + longitude + ", \"unlock\": " + status + "}", "data");
@@ -70,6 +80,7 @@ int changeBaud(String command)
   return 1;
 }
 
+//check input from Bluetooth and USB, read output from GSM-module
 void checkIO()
 {
   if (Serial.available() > 0)
@@ -80,17 +91,6 @@ void checkIO()
     {
       char ch = Serial.read();
       Serial.print(ch);
-      Serial1.print(ch);
-    }
-  }
-
-  if (BT.available() > 0)
-  {
-    BT.print(">");
-    delay(100);
-    while (BT.available())
-    {
-      char ch = BT.read();
       Serial1.print(ch);
     }
   }
@@ -128,44 +128,51 @@ void checkIO()
   }
 }
 
+void checkBluetooth()
+{
+  if (BT.available() > 0)
+  {
+    BT.print(">");
+    delay(100);
+    while (BT.available())
+    {
+      char ch = BT.read();
+      Serial1.print(ch);
+    }
+  }
+}
+
 void loop()
 {
+  //check input from bluetooth and USB, and check output for sim
+  checkBluetooth();
+  checkIO();
+  // blink D7 blue light for status on device
   if (counter % 1000 == 0)
   {
     digitalWrite(D7, !digitalRead(D7));
-    if (sim->checkIfPinRequired())
-    {
-      Serial.println("\nSIM PIN required, starting initialization");
-      sim->initSim();
-    }
   }
 
+  // check if incomming mqtt message
   if (sim->getMqttStatus())
   {
     sim->readMqttMessage();
   }
-  else
+
+  // check if boat is unlocked or not
+  if (boat->getStatus() != digitalRead(D4))
   {
-
-    if (boat->getStatus())
-    {
-      digitalWrite(D4, HIGH);
-    }
-    else
-    {
-      digitalWrite(D4, LOW);
-    }
-
-    checkIO();
-    if (counter % 60000 == 0)
-    {
-
-      sim->getCords();
-      publishData("ok");
-      // check if missed message
-      sim->readDweet();
-    }
-
-    counter++;
+    digitalWrite(D4, boat->getStatus() ? HIGH : LOW);
   }
+
+  if (counter % 60000 == 0)
+  {
+    //   //Get coords occasionally
+    sim->getCords();
+    //   // update occasionally state
+    publishData("ok");
+    //   // check if missed message during publish, read state from Dweet.io
+    sim->readDweet();
+  }
+  counter++;
 }

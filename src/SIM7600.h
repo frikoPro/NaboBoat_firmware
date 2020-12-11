@@ -3,6 +3,7 @@
 #include "Particle.h"
 #include <ArduinoJson.h>
 #include "Boat.h"
+#include <ParticleSoftSerial.h>
 
 class SIM7600
 {
@@ -21,13 +22,9 @@ public:
     void subData();
     void setLastWill();
 
-    bool checkIfPinRequired();
-    bool checkMqttComs();
-
     void readMqttMessage();
     void handleMqttMessage(String payload);
 
-    void postDweet(String latitude, String longitude);
     void readDweet();
     void readJson();
 
@@ -39,8 +36,9 @@ private:
     static SIM7600 *instance;
     SIM7600();
     ~SIM7600();
+
+    // mqtt message might arrive partially from multiple loops
+    // keep them global and reset them after linefeed reaches more than 4
     bool incomingMqttMessage;
-    int countLinefeed;
-    String messagePayload = "";
 };
 #endif

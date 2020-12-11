@@ -20,7 +20,7 @@ void Boat::deleteInstance()
     }
 }
 
-Boat::Boat() : isUnlocked(false), latitude("\"none\""), longitude("\"none\"") {}
+Boat::Boat() : isUnlocked(false), latitude("none"), longitude("none") {}
 
 bool Boat::getStatus()
 {
